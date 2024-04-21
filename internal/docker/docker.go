@@ -2,6 +2,7 @@ package docker
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -22,12 +23,13 @@ func GetRemoteUser(containerId, remoteUser string) (string, error) {
 		"docker",
 		"inspect",
 		"-f",
-		`{{ index .Config.Labels "devcontainer.metadata" }}`,
+		"{{ index .Config.Labels \"devcontainer.metadata\" }}",
 		containerId,
 	)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		fmt.Println(string(output))
 		return "", err
 	}
 
@@ -66,7 +68,11 @@ func GetContainerID(workspace string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", err
+		return "", errors.New(string(output))
+	}
+
+	if len(output) == 0 {
+		return "", errors.New("failed to find container ID")
 	}
 
 	return strings.TrimSpace(string(output)), nil
@@ -172,7 +178,8 @@ func expectContainer(containerId, field, value string) bool {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Fatalf("failed to inspect container: %v", err)
+		fmt.Printf("failed to inspect container: %v\n", err)
+		return false
 	}
 
 	return strings.TrimSpace(string(output)) == value
