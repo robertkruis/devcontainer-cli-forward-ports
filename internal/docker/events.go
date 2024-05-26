@@ -3,14 +3,85 @@ package docker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"time"
 )
 
-func Events(ctx context.Context, workspace, configFile string, since time.Duration) (<-chan string, error) {
-	eventsCh := make(chan string)
+type EventMessage struct {
+	Status     string
+	ID         string
+	Action     string
+	RemoteUser string
+}
+
+func (msg *EventMessage) UnmarshalJSON(data []byte) error {
+	var objmap map[string]*json.RawMessage
+
+	err := json.Unmarshal(data, &objmap)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(*objmap["status"], &msg.Status)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(*objmap["id"], &msg.ID)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(*objmap["Action"], &msg.Action)
+	if err != nil {
+		return err
+	}
+
+	var actormap map[string]*json.RawMessage
+	err = json.Unmarshal(*objmap["Actor"], &actormap)
+	if err != nil {
+		return err
+	}
+
+	var attributes map[string]*json.RawMessage
+	err = json.Unmarshal(*actormap["Attributes"], &attributes)
+	if err != nil {
+		return err
+	}
+
+	var metadata string
+	err = json.Unmarshal(*attributes["devcontainer.metadata"], &metadata)
+	if err != nil {
+		return err
+	}
+
+	var metaobj []map[string]*json.RawMessage
+	err = json.Unmarshal([]byte(metadata), &metaobj)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range metaobj {
+		if item["remoteUser"] == nil {
+			continue
+		}
+
+		err = json.Unmarshal(*item["remoteUser"], &msg.RemoteUser)
+		if err != nil {
+			return err
+		}
+
+		break
+	}
+
+	return nil
+}
+
+func Events(ctx context.Context, workspace, configFile string, since time.Duration) (<-chan EventMessage, error) {
+	eventsCh := make(chan EventMessage)
 	outputCh := make(chan string, 1)
 	errCh := make(chan string, 1)
 
@@ -31,7 +102,8 @@ func Events(ctx context.Context, workspace, configFile string, since time.Durati
 		"-f",
 		fmt.Sprintf("label=devcontainer.config_file=%s", configFile),
 		"--format",
-		"{{.ID}},{{.Status}}",
+		"json",
+		// "{{.ID}},{{.Status}},{{ index .Actor.Attributes \"devcontainer.metadata\" | json}}",
 		"--since",
 		since.String(),
 	)
@@ -56,8 +128,16 @@ func Events(ctx context.Context, workspace, configFile string, since time.Durati
 				cleanup()
 				return
 
-			case line := <-outputCh:
-				eventsCh <- line
+			case line, ok := <-outputCh:
+				if !ok {
+					return
+				}
+
+				// fmt.Println("line:", line, ", ok:", ok)
+				var msg EventMessage
+				json.Unmarshal([]byte(line), &msg)
+				// fmt.Printf("%#v\n", msg)
+				eventsCh <- msg
 			}
 		}
 	}(outputCh)
