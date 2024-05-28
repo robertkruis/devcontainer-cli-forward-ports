@@ -14,6 +14,15 @@ type forwardPortsConfig struct {
 	ForwardPorts []int  `json:"forwardPorts"`
 }
 
+func (fpc forwardPortsConfig) String() string {
+	return fmt.Sprintf(
+		"name=%s, remote user=%s, forward ports=%v",
+		fpc.Name,
+		fpc.RemoteUser,
+		fpc.ForwardPorts,
+	)
+}
+
 func loadForwardPortsConfig(jsonPath string) (*forwardPortsConfig, error) {
 	file, err := os.Open(jsonPath)
 	if err != nil {
@@ -38,8 +47,6 @@ func normalizeJson(file *os.File) string {
 
 		contents += line
 	}
-
-	fmt.Println(contents)
 
 	return contents
 }

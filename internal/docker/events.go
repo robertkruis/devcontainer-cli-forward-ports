@@ -103,7 +103,6 @@ func Events(ctx context.Context, workspace, configFile string, since time.Durati
 		fmt.Sprintf("label=devcontainer.config_file=%s", configFile),
 		"--format",
 		"json",
-		// "{{.ID}},{{.Status}},{{ index .Actor.Attributes \"devcontainer.metadata\" | json}}",
 		"--since",
 		since.String(),
 	)
@@ -133,10 +132,8 @@ func Events(ctx context.Context, workspace, configFile string, since time.Durati
 					return
 				}
 
-				// fmt.Println("line:", line, ", ok:", ok)
 				var msg EventMessage
 				json.Unmarshal([]byte(line), &msg)
-				// fmt.Printf("%#v\n", msg)
 				eventsCh <- msg
 			}
 		}

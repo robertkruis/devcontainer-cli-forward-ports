@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -72,9 +73,7 @@ func (f *Forwarder) Start(ctx context.Context) (<-chan struct{}, error) {
 		f.cleanup()
 		f.wg.Wait()
 
-		fmt.Println("closing doneCh")
 		close(doneCh)
-		fmt.Println("closed doneCh")
 	}()
 
 	return doneCh, nil
@@ -104,13 +103,20 @@ func (f *Forwarder) acceptConns(ctx context.Context, listener net.Listener) {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("received context cancel on acceptConns")
 			return
 
 		default:
 			conn, err := listener.Accept()
 			if err != nil {
-				fmt.Printf("failed to accept connection due to: %v\n", err)
+				if errors.Is(err, net.ErrClosed) {
+					return
+				}
+
+				slog.Warn(
+					"failed to accept connection",
+					slog.String("local-address", listener.Addr().String()),
+					slog.String("error", err.Error()))
+
 				continue
 			}
 
@@ -125,7 +131,6 @@ func (f *Forwarder) handleConns(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("received context cancel on handleConns")
 			return
 
 		case conn := <-f.connCh:
@@ -142,7 +147,10 @@ func (f *Forwarder) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	_, port, _ := net.SplitHostPort(conn.LocalAddr().String())
-	fmt.Printf("received conn on port %s with remote address: %s\n", port, conn.RemoteAddr().String())
+	slog.Debug(
+		"received connection on forwarded port",
+		slog.String("port", port),
+		slog.String("remote-address", conn.RemoteAddr().String()))
 
 	p, _ := strconv.Atoi(port)
 	f.forwardFn(conn, p)

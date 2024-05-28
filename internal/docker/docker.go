@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -89,6 +90,13 @@ func ForwardPort(client io.ReadWriteCloser, containerId, port, remoteUser string
 		"-c",
 		fmt.Sprintf("su - %s -c 'socat - TCP:localhost:%s'", remoteUser, port),
 	)
+
+	slog.Debug(
+		"forwarding port to container",
+		slog.String("container-id", containerId),
+		slog.String("remote-user", remoteUser),
+		slog.String("port", port),
+		slog.String("args", strings.Join(cmd.Args, " ")))
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

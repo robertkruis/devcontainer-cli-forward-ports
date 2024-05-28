@@ -2,8 +2,8 @@ package devcontainer
 
 import (
 	"context"
-	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -28,9 +28,18 @@ func NewDevContainerForwarder(ctx context.Context, workspace string) (*DevContai
 
 	config, err := loadForwardPortsConfig(jsonPath)
 	if err != nil {
-		fmt.Printf("failed to load %s: %v\n", jsonPath, err)
+		slog.Error(
+			"failed to load devcontainer.json",
+			slog.String("path", jsonPath),
+			slog.String("error", err.Error()))
+
 		return nil, err
 	}
+
+	slog.Debug(
+		"loaded forwarding configuration from devcontainer.json",
+		slog.String("path", jsonPath),
+		slog.String("config", config.String()))
 
 	cancelCtx, cancelFn := context.WithCancel(ctx)
 	devcontainerForwarder := &DevContainerForwarder{
@@ -47,7 +56,10 @@ func NewDevContainerForwarder(ctx context.Context, workspace string) (*DevContai
 		config.ForwardPorts,
 		devcontainerForwarder.forwardToContainer)
 	if err != nil {
-		fmt.Printf("failed to create forwarder: %v\n", err)
+		slog.Error(
+			"failed to create forwarder",
+			slog.String("error", err.Error()))
+
 		return nil, err
 	}
 
@@ -60,12 +72,22 @@ func (f *DevContainerForwarder) Start() (<-chan struct{}, error) {
 	eventsCh, err := docker.Events(f.ctx, f.workspace, f.jsonPath, 10*time.Second)
 	if err != nil {
 		f.cancelFn()
+
+		slog.Error(
+			"failed to get docker events",
+			slog.String("error", err.Error()))
+
 		return nil, err
 	}
 
 	forwardDoneCh, err := f.forwarder.Start(f.ctx)
 	if err != nil {
 		f.cancelFn()
+
+		slog.Error(
+			"failed to start forwarding",
+			slog.String("error", err.Error()))
+
 		return nil, err
 	}
 
@@ -94,21 +116,27 @@ func (f *DevContainerForwarder) handleEvents(ctx context.Context, events <-chan 
 			return
 
 		case event := <-events:
-			// fmt.Println("docker event:", event)
+			switch event.Action {
+			case "start":
+				slog.Debug(
+					"container started, forwarding",
+					slog.String("container-id", event.ID),
+					slog.String("remote-user", event.RemoteUser))
 
-			if event.Action == "start" {
-				fmt.Printf("container %s started, allow forwarding\n", event.ID)
 				f.remoteUser = event.RemoteUser
 				f.containerId = event.ID
-			}
 
-			if event.Action == "die" {
-				fmt.Printf("container %s died, maybe stop forwarding\n", event.ID)
+			case "die":
+				slog.Debug(
+					"container died, waiting for restart",
+					slog.String("container-id", event.ID))
+
 				containerRestartTimer.Reset(5 * time.Second)
-			}
 
-			if event.Action == "restart" {
-				fmt.Printf("container %s restarted, allow forwarding\n", event.ID)
+			case "restart":
+				slog.Debug(
+					"container (re)started, forwarding",
+					slog.String("container-id", event.ID))
 
 				if !containerRestartTimer.Stop() {
 					<-containerRestartTimer.C
@@ -116,9 +144,11 @@ func (f *DevContainerForwarder) handleEvents(ctx context.Context, events <-chan 
 			}
 
 		case <-containerRestartTimer.C:
-			fmt.Printf("container failed to (re)start, bailing out\n")
+			slog.Debug(
+				"container failed to (re)start, stopping forwarding",
+				slog.String("container-id", f.containerId))
+
 			f.cancelFn()
-			fmt.Println("cancel forwarding and event handling")
 			return
 		}
 	}
@@ -127,6 +157,10 @@ func (f *DevContainerForwarder) handleEvents(ctx context.Context, events <-chan 
 func (f *DevContainerForwarder) forwardToContainer(conn io.ReadWriteCloser, port int) {
 	err := docker.ForwardPort(conn, f.containerId, strconv.Itoa(port), f.remoteUser)
 	if err != nil {
-		fmt.Printf("failed to forward port %d to container: %v\n", port, err)
+		slog.Error(
+			"failed to forward port to container",
+			slog.String("container-id", f.containerId),
+			slog.String("remote-user", f.remoteUser),
+			slog.String("error", err.Error()))
 	}
 }
