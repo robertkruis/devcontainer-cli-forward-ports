@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -106,6 +108,13 @@ func Events(ctx context.Context, workspace, configFile string, since time.Durati
 		"--since",
 		since.String(),
 	)
+
+	slog.Debug(
+		"listening for container events",
+		slog.String("workspace", workspace),
+		slog.String("config-file", configFile),
+		slog.String("since", since.String()),
+		slog.String("args", strings.Join(cmd.Args, " ")))
 
 	cmd.Stdout = newOutputStream(outputCh)
 	cmd.Stderr = newOutputStream(errCh)
